@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# DiscordSpeakBot local runtime and model assets
+/data/
+/models/
+*.wav
+*.safetensors
+*.pt
+*.pth
