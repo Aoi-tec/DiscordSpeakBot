@@ -7,10 +7,11 @@ edition = "2021"
 anyhow = "1"
 base64 = "0.22"
 eframe = "0.33"
+raw-window-handle = "0.6"
 tray-icon = "0.21"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_Media_Audio"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_Media_Audio", "Win32_UI_WindowsAndMessaging"] }
 

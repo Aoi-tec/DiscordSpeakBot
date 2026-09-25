@@ -4,6 +4,7 @@ use std::os::windows::io::AsRawHandle;
 use std::process::Child;
 use windows_sys::Win32::{
     Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE},
+    UI::WindowsAndMessaging::{IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW},
     Security::Credentials::{
         CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
     },
@@ -16,6 +17,21 @@ use windows_sys::Win32::{
         Threading::{CreateMutexW, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS},
     },
 };
+
+/// Show and focus the main window directly through Win32.
+///
+/// eframe stops running `update()` while its window is hidden, so viewport commands
+/// sent from the tray are never processed. ShowWindow works from any thread.
+pub fn show_window(hwnd: isize) {
+    if hwnd == 0 {
+        return;
+    }
+    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+    unsafe {
+        ShowWindow(hwnd, if IsIconic(hwnd) != 0 { SW_RESTORE } else { SW_SHOW });
+        SetForegroundWindow(hwnd);
+    }
+}
 
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()

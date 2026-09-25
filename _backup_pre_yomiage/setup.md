@@ -74,52 +74,22 @@ Discord Developer PortalでBotを作成し、Message Content Intentを有効に�
 
 Tokenはチャットや設定JSONへ貼らず、Hostの`Discord Token`欄へ入力して`Save Token`します。Windows Credential Managerの`DiscordSpeakBot/DiscordToken`に保存されます。`Restart Worker`で読み込み直します。
 
-通常VCに入った状態で、読み上げたいテキストチャンネルから`/yomiage join`を実行します。Botは実行した人がいるVCへ参加します。読み上げチャンネルが1つも登録されていない場合は、コマンドを実行したチャンネルが自動で登録されます。以降のチャンネルは`/yomiage add channel`で追加します。
+初回はGuild管理権限を持つ人が参加先の通常VCに入り、読み上げ対象のテキストチャンネルから`/tts join`を実行できます。そのテキストチャンネルとVCをGuild設定として保存して参加します。すでにGuild設定がある場合、`/tts join`は登録済みVCを使い、設定を上書きしません。
 
 Hostで手動設定する場合は、Settings pathに`/guilds/実際のGuild ID`を入力してFetchします。未登録の場合もrevisionが返ります。エディターを次の部分設定で置き換え、Saveします。
 
 ```json
 {
   "enabled": true,
-  "text_channel_ids": ["実際のテキストチャンネルID"],
+  "text_channel_id": "実際のテキストチャンネルID",
   "voice_channel_id": "実際のボイスチャンネルID",
   "auto_rejoin": true
 }
 ```
 
-IDは実際には数字のみの文字列です。HostのGuild ID欄で`join`（最後に参加したVCへ接続）、またはDiscordから`/yomiage join`を実行します。旧形式の`text_channel_id`（単一）も読み込み時に`text_channel_ids`へ自動変換されます。Botがreadyでモデル・Voiceが有効なら、対象Text Channelの新規投稿が読み上げられます。
+IDは実際には数字のみの文字列です。HostのGuild ID欄で`join`、またはDiscordから`/tts join`を実行します。Botがreadyでモデル・Voiceが有効なら、対象Text Channelの新規投稿が読み上げられます。
 
-### コマンド（`/yomiage`）
-
-| コマンド | 内容 | 実行できる人 |
-| --- | --- | --- |
-| `join` | 実行者がいるVCへ参加 | VC参加者（Botが他VCで読み上げ中なら管理者のみ移動可） |
-| `leave` | VCから退出 | Botと同じVCの参加者・管理者 |
-| `add channel [channel]` | 読み上げ対象チャンネルを追加（省略時は実行したチャンネル） | 全員 |
-| `remove channel [channel]` | 読み上げ対象チャンネルを削除（省略時は一覧から選択） | 全員 |
-| `list` | 使用できるモデル一覧（メニューからそのまま変更可） | 全員 |
-| `voice [model] [scope]` | 自分のモデル変更。名前/IDで指定（補完あり）、省略時はメニュー | 全員（本人の設定） |
-| `speed [percent] [scope]` | 自分の読み上げ速度（50〜200%）。省略時はボタンで調整 | 全員（本人の設定） |
-| `skip` | 現在の読み上げをスキップ | Botと同じVCの参加者・管理者 |
-| `clear` | サーバー内の読み上げ待ちを削除 | 管理者、または許可ロール（下記） |
-| `reset` | 自分の「このサーバーのみ」設定を削除し、全サーバー共通の設定に戻す | 全員（本人の設定） |
-| `all reset` | 自分の設定を全サーバー分削除し、Botの既定値に戻す | 全員（本人の設定・確認ボタンあり） |
-| `status` | 接続先・エンジン状態・キュー・自分の設定（共通／サーバー別／実際の値）をパネル表示 | 全員 |
-| `queue` | 読み上げ待ちの一覧をパネル表示（更新・スキップ・クリアのボタン付き） | 全員（ボタン操作は上記の権限） |
-| `permission clear enabled [role]` | ロールでのクリア許可をTrue/Falseで切替。roleを付けるとTrueで追加、Falseでそのロールだけ解除 | 管理者 |
-
-scopeは「全サーバー共通」（既定）または「このサーバーのみ」。サーバーのみの設定があればそちらが優先されます。モデル選択・速度のパネルでは緑のボタンで変更先を切り替えられます。
-
-BotのいるVCから人（Bot以外）がいなくなると、Botは自動で退出します。自動退出後は`auto_rejoin`でも再接続しません。
-
-管理者はManage Guild権限または設定済み管理ロール（`admin_role_ids`）を持つ人です。クリアの許可ロールは`guilds.json`の`clear_by_role`（True/False）と`clear_role_ids`にも保存されます。応答は`join`/`leave`以外は本人にだけ表示されます。音量はコマンドから外しましたが、HostのAPI・設定値としては引き続き使えます。
-
-### 専用ボイスと入退室の案内
-
-- HostのボイスページやAPIで、ボイスに「使えるユーザーID」を設定できます。空欄なら全員が使えます。指定するとその人専用になり、他の人は`/yomiage voice`や一覧で選べず、読み上げにも使われません（他人の専用ボイスが設定に残っていても既定ボイスで読みます）。専用ボイスは既定ボイスにできません。
-- BotのいるVCに人が入退室すると、その人のボイス・速度で「〇〇さんが入室しました／退室しました」と案内します。サーバー設定の`announce_voice_state`（Hostのサーバーページ）でオフにできます。
-- ボイスを削除すると、参照音声は`voices/.deleted/`へ移動され、同じIDで再登録できます。そのボイスを選んでいた人の設定は外れ、既定ボイスに戻ります。
-- Hostからの登録では音声ファイルをffmpegで24kHzモノラルの16bit WAVへ自動変換します（m4a・mp3なども可）。
+コマンド: `/voice voice_id scope`、`/speed percent scope`、`/volume percent scope`、`/tts reset field`、`/tts join|leave|skip|clear|status`。scopeはglobalまたはguild。本人の設定だけを変更できます。join/leave/clearはManage Guildまたは設定済み管理ロール、skipはそれに加えて同じVC内のユーザーに許可します。
 
 Voice接続はDAVE対応のdiscord.py 2.7.1を固定した開発用ロックファイルで確認していますが、実際の接続テストは別途必要です。[discord.pyリリース情報](https://github.com/Rapptz/discord.py/blob/master/docs/whats_new.rst)
 

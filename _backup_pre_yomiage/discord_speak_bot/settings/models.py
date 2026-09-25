@@ -54,14 +54,9 @@ class QueueConfig(Model):
     audio_budget_mib: int = Field(default=64, ge=16, le=512)
 
 
-MAX_TEXT_CHANNELS = 25
-
-
 class GuildSettings(Model):
     enabled: bool = False
-    # Several text channels can be read in one guild (/yomiage add channel).
-    text_channel_ids: list[Snowflake] = Field(default_factory=list, max_length=MAX_TEXT_CHANNELS)
-    # Last voice channel the bot joined; used by auto_rejoin and the Host "join" action.
+    text_channel_id: Snowflake | None = None
     voice_channel_id: Snowflake | None = None
     auto_rejoin: bool = False
     max_queue: int = Field(default=10, ge=1, le=100)
@@ -69,34 +64,11 @@ class GuildSettings(Model):
     skip_urls: bool = True
     skip_codeblocks: bool = True
     read_bot_messages: bool = False
-    # Announce "<name>さんが入室/退室しました" in that member's own voice.
-    announce_voice_state: bool = True
     admin_role_ids: list[Snowflake] = Field(default_factory=list, max_length=20)
-    # /yomiage permission clear: when True, members with one of clear_role_ids may also
-    # run /yomiage clear (administrators always can).
-    clear_by_role: bool = False
-    clear_role_ids: list[Snowflake] = Field(default_factory=list, max_length=20)
-
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_single_text_channel(cls, value):
-        """Accept the legacy single `text_channel_id` field (guilds.json / Host PATCH)."""
-        if isinstance(value, dict) and "text_channel_id" in value:
-            value = dict(value)
-            legacy = value.pop("text_channel_id")
-            channels = list(value.get("text_channel_ids") or [])
-            if legacy and legacy not in channels:
-                channels.insert(0, legacy)
-            value["text_channel_ids"] = channels
-        return value
-
-
-# Sequential inference on one GPU is designed/measured for up to 3 guilds (docs/design.md).
-MAX_GUILDS = 3
 
 
 class Guilds(Document):
-    guilds: dict[Snowflake, GuildSettings] = Field(default_factory=dict, max_length=MAX_GUILDS)
+    guilds: dict[Snowflake, GuildSettings] = Field(default_factory=dict, max_length=3)
 
 
 class Voice(Model):
@@ -104,11 +76,6 @@ class Voice(Model):
     reference_audio: str = Field(min_length=1, max_length=240)
     reference_text: str = Field(min_length=1, max_length=2000)
     generation: int = Field(default=1, ge=1)
-    # Personal voice: only these Discord users may use it. Empty means everyone.
-    allowed_user_ids: list[Snowflake] = Field(default_factory=list, max_length=50)
-
-    def usable_by(self, user_id: str) -> bool:
-        return not self.allowed_user_ids or user_id in self.allowed_user_ids
 
 
 class Voices(Document):

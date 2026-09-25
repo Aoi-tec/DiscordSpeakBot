@@ -28,9 +28,6 @@ class Runtime:
         self.restart_requested = False
         self.discord = None
         self.stopping = asyncio.Event()
-        # Set whenever there is new work (message, finished synthesis, finished playback).
-        # The pump sleeps on it instead of busy-polling every 20ms.
-        self.wake = asyncio.Event()
         self.tasks = []
         self.seen = OrderedDict()
         self.operations = {}
@@ -91,7 +88,7 @@ class Runtime:
         if self.stopping.is_set() or not self.engine_ready:
             return
         config = self.store.get("guilds").guilds.get(guild_id)
-        if not config or not config.enabled or channel_id not in config.text_channel_ids:
+        if not config or not config.enabled or config.text_channel_id != channel_id:
             return
         if is_bot and not config.read_bot_messages:
             return
@@ -106,45 +103,16 @@ class Runtime:
         item = Message(guild_id, channel_id, user_id, text, time.monotonic(), [message_id])
         for ready in self.aggregator.push(item, config.merge_window_ms):
             self._enqueue(ready)
-        self.notify()
-
-    def announce(self, guild_id, user_id, text):
-        """Speak a system announcement (e.g. join/leave) with this user's voice settings."""
-        if self.stopping.is_set() or not self.engine_ready:
-            return
-        config = self.store.get("guilds").guilds.get(guild_id)
-        if not config or not config.enabled or not config.announce_voice_state:
-            return
-        if not self.scheduler.guild(guild_id).connected:
-            return
-        text = clean_text(text, skip_urls=True, skip_codeblocks=True)
-        if text:
-            self._enqueue(Message(guild_id, "voice", user_id, text, time.monotonic(), []))
-            self.notify()
-
-    def notify(self):
-        self.wake.set()
-
-    def playback_done(self, guild_id, request_id, failed=False):
-        self.scheduler.playback_done(guild_id, request_id, failed)
-        self.notify()
-
-    def speech_settings(self, user_id, guild_id):
-        """Settings actually used for this user here, after voice availability checks."""
-        system = self.store.get("system")
-        settings, _ = resolve(system, self.store.get("users"), user_id, guild_id)
-        voice = self.store.get("voices").voices.get(settings.voice_id)
-        if voice is None or not voice.usable_by(user_id):
-            # Missing voice, or another person's personal voice: use the Bot default.
-            settings.voice_id = system.defaults.voice_id
-        return settings
 
     def _enqueue(self, item):
         config = self.store.get("guilds").guilds.get(item.guild_id)
         if not config or not config.enabled:
             return
-        settings = self.speech_settings(item.user_id, item.guild_id)
+        system = self.store.get("system")
+        settings, _ = resolve(system, self.store.get("users"), item.user_id, item.guild_id)
         voices = self.store.get("voices").voices
+        if settings.voice_id not in voices:
+            settings.voice_id = system.defaults.voice_id
         voice = voices.get(settings.voice_id)
         if not voice and not self.fake:
             self.last_error = "NO_VOICE"
@@ -257,18 +225,10 @@ class Runtime:
             else:
                 self.scheduler.finish(job, pcm)
 
-    def _idle_timeout(self):
-        timeout = 0.5
-        deadline = self.aggregator.next_deadline()
-        if deadline is not None:
-            timeout = min(timeout, max(0.0, deadline - time.monotonic()))
-        return timeout
-
     async def _pump(self):
         generating = None
         try:
             while not self.stopping.is_set():
-                self.wake.clear()
                 for message in self.aggregator.flush_due(time.monotonic()):
                     self._enqueue(message)
                 self._prune_operations()
@@ -283,16 +243,9 @@ class Runtime:
                         job = self.preview_pending.popleft()
                         self.operations[job.request_id]["state"] = "running"
                         generating = asyncio.create_task(self._generate(job, preview=True))
-                    if generating:
-                        generating.add_done_callback(lambda _: self.notify())
                 if self.discord:
                     self.discord.pump_playback()
-                # Event driven: wakes immediately on new work, otherwise re-checks TTLs,
-                # aggregation deadlines and voice state at a low rate.
-                try:
-                    await asyncio.wait_for(self.wake.wait(), self._idle_timeout())
-                except asyncio.TimeoutError:
-                    pass
+                await asyncio.sleep(0.02)
         finally:
             if generating:
                 generating.cancel()
@@ -301,32 +254,10 @@ class Runtime:
     def clear(self, guild_id):
         self.aggregator.clear(guild_id)
         self.scheduler.clear(guild_id)
-        self.notify()
-
-    def reset_user(self, user_id, guild_id=None):
-        """Drop a user's personal settings.
-
-        With guild_id only that guild's overrides go (the user falls back to their global
-        settings there); without it every personal setting of the user is removed.
-        Returns False when there was nothing to reset.
-        """
-        user = self.store.get("users").users.get(user_id)
-        if not user or (guild_id is not None and guild_id not in user.guilds):
-            return False
-
-        def mutate(target):
-            if guild_id is None:
-                target["users"].pop(user_id, None)
-            else:
-                target["users"][user_id]["guilds"].pop(guild_id, None)
-
-        self.store.update("users", self.store.get("users").revision, mutate)
-        return True
 
     async def stop(self):
         self.state = "stopping"
         self.stopping.set()
-        self.notify()
         for guild_id in list(self.scheduler.guilds):
             self.aggregator.clear(guild_id)
             self.scheduler.disconnect(guild_id)

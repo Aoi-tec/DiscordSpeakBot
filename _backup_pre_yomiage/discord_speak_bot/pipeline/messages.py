@@ -69,8 +69,5 @@ class Aggregator:
                 del self.pending[guild_id]
         return ready
 
-    def next_deadline(self) -> float | None:
-        return min((deadline for _, deadline in self.pending.values()), default=None)
-
     def clear(self, guild_id: str):
         self.pending.pop(guild_id, None)

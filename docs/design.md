@@ -98,7 +98,7 @@ Worker再起動時は音声・テキストキューを復元しない。旧メ�
 |---|---|
 | system.json | startup、performance、tts、queue、api、defaults |
 | users.json | users[user_id]のglobal設定とguilds[guild_id]の部分override |
-| guilds.json | enabled、text_channel_id、voice_channel_id、auto_rejoin、queue/filter設定 |
+| guilds.json | enabled、text_channel_ids（複数）、voice_channel_id（最後に参加したVC）、auto_rejoin、queue/filter設定 |
 | voices.json | voices[voice_id]の名前、参照音声、参照テキスト、cache世代、状態 |
 
 設定解決はフィールド単位で`GuildUser > GlobalUser > system.defaults`。未指定は継承、nullは保存しない。override削除APIがフィールドを除去する。空文字を継承の代用にしない。
@@ -190,9 +190,9 @@ Host自身の再起動操作はSupervisor経由とし、停止したWorkerのAPI
 
 GatewayのMessage Content Intentを必要条件としてセットアップで確認する。Voice接続と暗号化は採用ライブラリの対応バージョンで実接続テストする。Opus送信だけで接続互換性を満たすとは判断しない。[Discord Gateway仕様](https://github.com/discord/discord-api-docs/blob/main/developers/events/gateway.mdx)、[Discord Voice・DAVE仕様](https://github.com/discord/discord-api-docs/blob/main/developers/topics/voice-connections.mdx)
 
-`/voice set`、`/speed set`、`/volume set`は本人の設定のみ変更可能。scopeはglobal/guild、既定globalを明示する。guild scopeはGuild内だけで利用可能。`/voice reset scope:guild`等でoverrideを解除できる。設定応答は本人だけに表示する。
+Slashコマンドは`/yomiage`に集約する（一覧はdocs/setup.md）。`voice`・`speed`・`reset`・`all reset`は本人の設定のみを対象とし、scopeはglobal/guild、既定global。guild overrideがglobalより優先され、`reset`でguild override、`all reset`で本人の全設定を削除する。status・queueはEmbedとボタンで本人だけに表示する。
 
-join、leave、clear、Guild設定変更はManage Guild権限または設定した管理ロールに制限する。skipは同じVoice Channelのユーザーまたは管理者に許可する。statusはTokenや他人の詳細設定を出さない。Botには対象チャンネルのView Channel、Connect、Speak等の必要権限のみ付与し、Administratorは要求しない。長いSlash処理はdeferしてから結果を返す。
+joinは実行者のいるVCへ参加し、VC参加者なら実行できる（他VCで読み上げ中の移動は管理者のみ）。add/remove channelは全員に許可する。clearは管理者（Manage Guildまたは管理ロール）に加え、Guild設定`clear_by_role`がTrueなら`clear_role_ids`のロール保持者に許可し、`/yomiage permission clear`で管理者が切り替える。leave・skipは同じVoice Channelのユーザーまたは管理者に許可する。statusはTokenや他人の詳細設定を出さない。Botには対象チャンネルのView Channel、Connect、Speak等の必要権限のみ付与し、Administratorは要求しない。長いSlash処理はdeferしてから結果を返す。
 
 ## 11. GUI・CPU・GPU管理
 

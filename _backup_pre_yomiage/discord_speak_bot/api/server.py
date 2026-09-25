@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from ..settings.models import Overrides, SpeechSettings, dump, resolve
 from ..settings.store import RevisionConflict, StoreError, merge
-from ..tts.voices import register_voice, remove_voice, update_voice
+from ..tts.voices import register_voice, remove_voice
 
 PREFIX = "/internal/v1"
 
@@ -142,10 +142,6 @@ def create_app(runtime, token: str):
         )
         if voice and voice not in store.get("voices").voices:
             raise APIError(422, "VOICE_NOT_FOUND", "Voiceが登録されていません")
-        if voice and store.get("voices").voices[voice].allowed_user_ids:
-            raise APIError(
-                422, "VOICE_RESTRICTED", "専用ボイス（使用者限定）は既定ボイスにできません"
-            )
         model = store.update("system", revision(request), lambda target: merge(target, patch))
         return {"settings": dump(model), "restart_required": bool(set(patch) - {"defaults"})}
 
@@ -173,10 +169,11 @@ def create_app(runtime, token: str):
             lambda target: merge(target["guilds"].setdefault(guild_id, {}), patch),
         )
         current = result.guilds[guild_id]
-        # Removing read channels only stops reading them; leaving is needed only when the
-        # guild is disabled or the Host moved the voice channel.
-        moved_voice = previous and previous.voice_channel_id != current.voice_channel_id
-        if not current.enabled or moved_voice:
+        changed_channel = previous and (
+            previous.text_channel_id != current.text_channel_id
+            or previous.voice_channel_id != current.voice_channel_id
+        )
+        if not current.enabled or changed_channel:
             runtime.aggregator.clear(guild_id)
             runtime.scheduler.disconnect(guild_id)
             if runtime.discord:
@@ -205,12 +202,8 @@ def create_app(runtime, token: str):
         if guild_id:
             valid_id(guild_id)
         patch = dump(Overrides.model_validate(await body(request)))
-        if patch.get("voice_id"):
-            voice = store.get("voices").voices.get(patch["voice_id"])
-            if voice is None:
-                raise APIError(422, "VOICE_NOT_FOUND", "Voiceが登録されていません")
-            if not voice.usable_by(user_id):
-                raise APIError(403, "VOICE_RESTRICTED", "このユーザーは使用できないボイスです")
+        if patch.get("voice_id") and patch["voice_id"] not in store.get("voices").voices:
+            raise APIError(422, "VOICE_NOT_FOUND", "Voiceが登録されていません")
 
         def mutate(target):
             user = target["users"].setdefault(user_id, {"global_settings": {}, "guilds": {}})
@@ -259,26 +252,14 @@ def create_app(runtime, token: str):
         data = await body(request)
 
         async def action():
-            required = {"voice_id", "name", "reference_text", "wav_base64"}
-            allowed = data.get("allowed_user_ids", [])
-            if (
-                not required <= set(data) <= required | {"allowed_user_ids"}
-                or not all(isinstance(data[key], str) for key in required)
-                or not isinstance(allowed, list)
-                or not all(isinstance(value, str) for value in allowed)
+            if set(data) != {"voice_id", "name", "reference_text", "wav_base64"} or not all(
+                isinstance(value, str) for value in data.values()
             ):
                 raise APIError(422, "INVALID_VOICE", "Voiceの項目を確認してください")
-            if data["voice_id"] in store.get("voices").voices:
-                raise APIError(409, "VOICE_EXISTS", "同じVoice IDが登録済みです")
             try:
                 wav = base64.b64decode(data["wav_base64"], validate=True)
                 result = register_voice(
-                    store,
-                    data["voice_id"],
-                    data["name"] or data["voice_id"],
-                    data["reference_text"],
-                    wav,
-                    allowed,
+                    store, data["voice_id"], data["name"], data["reference_text"], wav
                 )
             except (ValueError, binascii.Error):
                 raise APIError(
@@ -298,23 +279,11 @@ def create_app(runtime, token: str):
     async def delete_voice(voice_id: str, request: Request):
         try:
             result = remove_voice(store, runtime, voice_id, revision(request))
-        except ValueError as exc:
-            raise APIError(409, "VOICE_IN_USE", str(exc)) from None
+        except ValueError:
+            raise APIError(409, "VOICE_IN_USE", "設定またはジョブがVoiceを参照しています") from None
         except KeyError:
             raise APIError(404, "NOT_FOUND", "Voiceが存在しません") from None
         return {"revision": result.revision}
-
-    @app.patch(PREFIX + "/voices/{voice_id}")
-    async def patch_voice(voice_id: str, request: Request):
-        try:
-            result = update_voice(store, voice_id, revision(request), await body(request))
-        except ValidationError:
-            raise
-        except ValueError as exc:
-            raise APIError(422, "INVALID_VOICE", str(exc)) from None
-        except KeyError:
-            raise APIError(404, "NOT_FOUND", "Voiceが存在しません") from None
-        return {"revision": result.revision, "voice": dump(result.voices[voice_id])}
 
     # POST idempotency is serialized by the event loop. Actions hold a per-key future.
     import asyncio

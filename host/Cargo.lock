@@ -3821,6 +3821,7 @@ dependencies = [
  "anyhow",
  "base64",
  "eframe",
+ "raw-window-handle",
  "reqwest",
  "serde",
  "serde_json",

@@ -179,31 +179,6 @@ class Scheduler:
             guild.playing.job.state = "cancelled"
             self.playback_done(guild_id, guild.playing.job.request_id)
 
-    def snapshot(self, guild_id):
-        """Read-only view of one guild's pipeline, in playback order, for /yomiage queue."""
-        guild = self.guilds.get(guild_id)
-        if guild is None:
-            return {
-                "connected": False,
-                "playing": None,
-                "generated": [],
-                "generating": None,
-                "text": [],
-            }
-        return {
-            "connected": guild.connected,
-            "playing": guild.playing.job if guild.playing else None,
-            "generated": [audio.job for audio in guild.generated],
-            "generating": guild.generating,
-            "text": list(guild.text),
-        }
-
-    def pending_count(self, guild_id):
-        guild = self.guilds.get(guild_id)
-        if guild is None:
-            return 0
-        return len(guild.text) + len(guild.generated) + bool(guild.generating)
-
     def status(self):
         return {
             key: {
